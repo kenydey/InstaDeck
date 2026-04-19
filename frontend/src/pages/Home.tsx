@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { apiGet, apiPost, apiPostFile, apiPut } from "../api";
 
 const CONTENT_TYPES = [
@@ -47,6 +47,7 @@ export default function Home() {
   const [researchCtx, setResearchCtx] = useState<unknown>(null);
   const [imageQuery, setImageQuery] = useState("office workspace");
   const [imageHits, setImageHits] = useState<unknown[]>([]);
+  const [renderBusy, setRenderBusy] = useState(false);
 
   useEffect(() => {
     void (async () => {
@@ -71,6 +72,34 @@ export default function Home() {
       return null;
     }
   }, [outlineJson]);
+
+  const downloadRenderedPptx = useCallback(async () => {
+    if (!parsedOutline) {
+      setMsg("大纲 JSON 无效");
+      return;
+    }
+    setRenderBusy(true);
+    setMsg("");
+    try {
+      const r = await fetch("/api/v1/render-pptx", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ presentation: parsedOutline, deck_profile: profile }),
+      });
+      if (!r.ok) throw new Error(await r.text());
+      const blob = await r.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "instadeck.pptx";
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      setMsg(String(e));
+    } finally {
+      setRenderBusy(false);
+    }
+  }, [parsedOutline, profile]);
 
   return (
     <div className="space-y-8">
@@ -292,6 +321,17 @@ export default function Home() {
             修订大纲
           </button>
         </div>
+        <div className="mt-4 flex flex-wrap items-center gap-3 border-t border-slate-800 pt-4">
+          <button
+            type="button"
+            disabled={renderBusy}
+            className="rounded-lg bg-violet-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-violet-500 disabled:opacity-50"
+            onClick={() => void downloadRenderedPptx()}
+          >
+            {renderBusy ? "正在生成 PPT…" : "生成 PPT"}
+          </button>
+          <span className="text-xs text-slate-500">调用后端 /api/v1/render-pptx，使用当前大纲 JSON 与上方 Deck profile</span>
+        </div>
         {lint && (
           <pre className="mt-3 whitespace-pre-wrap rounded bg-slate-950 p-3 text-xs text-amber-200">{lint}</pre>
         )}
@@ -302,33 +342,11 @@ export default function Home() {
         <div className="flex flex-wrap gap-2">
           <button
             type="button"
-            className="rounded-lg bg-violet-600 px-3 py-2 text-sm font-medium text-white hover:bg-violet-500"
-            onClick={async () => {
-              if (!parsedOutline) {
-                setMsg("大纲 JSON 无效");
-                return;
-              }
-              setMsg("");
-              try {
-                const r = await fetch("/api/v1/render-pptx", {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ presentation: parsedOutline, deck_profile: profile }),
-                });
-                if (!r.ok) throw new Error(await r.text());
-                const blob = await r.blob();
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement("a");
-                a.href = url;
-                a.download = "instadeck.pptx";
-                a.click();
-                URL.revokeObjectURL(url);
-              } catch (e) {
-                setMsg(String(e));
-              }
-            }}
+            disabled={renderBusy}
+            className="rounded-lg bg-violet-600 px-3 py-2 text-sm font-medium text-white hover:bg-violet-500 disabled:opacity-50"
+            onClick={() => void downloadRenderedPptx()}
           >
-            下载 PPTX
+            {renderBusy ? "生成中…" : "下载 PPTX（同生成）"}
           </button>
         </div>
         <p className="mt-2 text-xs text-slate-500">预览：v1 后端返回 stub；可在本地用 PowerPoint 打开下载文件。</p>

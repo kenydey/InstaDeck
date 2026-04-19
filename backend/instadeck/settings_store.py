@@ -18,6 +18,9 @@ def load_app_settings() -> AppSettingsModel:
         m = AppSettingsModel()
         if settings.openai_api_key:
             m.llm_outline.model = settings.outline_model
+            m.llm_outline.api_key = settings.openai_api_key
+        if settings.openai_base_url:
+            m.llm_outline.base_url = settings.openai_base_url
         if settings.pexels_api_key:
             m.images_pexels.api_key = settings.pexels_api_key or ""
             m.images_pexels.enabled = True
@@ -41,11 +44,21 @@ def mask_key(key: str) -> str:
     return key[:4] + "…" + key[-4:]
 
 
+def _llm_slot_public(slot: dict[str, Any]) -> dict[str, Any]:
+    s = dict(slot)
+    raw_key = str(s.pop("api_key", "") or "")
+    return {
+        **s,
+        "api_key_configured": bool(raw_key),
+        "api_key_masked": mask_key(raw_key),
+    }
+
+
 def settings_for_response(model: AppSettingsModel) -> dict[str, Any]:
     d = model.model_dump()
-    d["llm_parser"] = {**d["llm_parser"]}
-    d["llm_outline"] = {**d["llm_outline"]}
-    d["llm_render"] = {**d["llm_render"]}
+    d["llm_parser"] = _llm_slot_public(d["llm_parser"])
+    d["llm_outline"] = _llm_slot_public(d["llm_outline"])
+    d["llm_render"] = _llm_slot_public(d["llm_render"])
     pex = dict(d.get("images_pexels") or {})
     pix = dict(d.get("images_pixabay") or {})
     pex_key = str(pex.pop("api_key", "") or "")

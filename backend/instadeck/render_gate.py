@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from instadeck.llm_vendors import resolve_openai_compatible_config
 from instadeck.schemas import Presentation
 
 
@@ -51,11 +52,13 @@ async def maybe_render_llm_patch(
     if not app.llm_render.enabled:
         return presentation
     settings = __import__("instadeck.config", fromlist=["get_settings"]).get_settings()
-    if not settings.openai_api_key:
+    slot = app.llm_render
+    api_key, base_url = resolve_openai_compatible_config(slot, settings)
+    if not api_key or slot.vendor_id == "mock":
         return presentation
     from openai import AsyncOpenAI
 
-    client = AsyncOpenAI(api_key=settings.openai_api_key, base_url=settings.openai_base_url)
+    client = AsyncOpenAI(api_key=api_key, base_url=base_url)
     sys_msg = (
         "You may only output JSON patch: { slides: [ { optional title, subtitle, "
         "bullet_points same length with icon/text only } ] }. Never include chart_data."

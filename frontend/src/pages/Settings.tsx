@@ -3,6 +3,15 @@ import { apiGet, apiPut } from "../api";
 
 type SettingsDto = Record<string, unknown>;
 type TemplateRow = { id: string; display_name: string; builtin: boolean };
+type LlmSlotKey = "llm_parser" | "llm_outline" | "llm_render";
+type VendorRow = { vendor_id: string; label: string; default_base_url?: string; doc_hint?: string };
+
+const LLM_SLOTS: LlmSlotKey[] = ["llm_parser", "llm_outline", "llm_render"];
+
+function stripLlmResponseFields(slot: Record<string, unknown>): Record<string, unknown> {
+  const { api_key_configured, api_key_masked, ...rest } = slot;
+  return rest;
+}
 
 const CONTENT_TYPES = [
   "business_report",
@@ -30,17 +39,25 @@ export default function Settings() {
   const [templates, setTemplates] = useState<TemplateRow[]>([]);
   const [pexelsKey, setPexelsKey] = useState("");
   const [pixabayKey, setPixabayKey] = useState("");
+  const [vendors, setVendors] = useState<VendorRow[]>([]);
+  const [llmKeyDraft, setLlmKeyDraft] = useState<Record<LlmSlotKey, string>>({
+    llm_parser: "",
+    llm_outline: "",
+    llm_render: "",
+  });
   const [msg, setMsg] = useState("");
 
   useEffect(() => {
     void (async () => {
       try {
-        const [s, t] = await Promise.all([
+        const [s, t, v] = await Promise.all([
           apiGet<SettingsDto>("/settings"),
           apiGet<TemplateRow[]>("/templates"),
+          apiGet<VendorRow[]>("/llm/vendors"),
         ]);
         setData(s);
         setTemplates(t);
+        setVendors(v);
       } catch (e) {
         setMsg(String(e));
       }
@@ -107,21 +124,72 @@ export default function Settings() {
       </section>
 
       <section className="rounded-xl border border-slate-800 bg-slate-900/50 p-5">
-        <h2 className="mb-3 text-sm font-medium uppercase tracking-wide text-slate-400">LLM 三槽</h2>
+        <h2 className="mb-3 text-sm font-medium uppercase tracking-wide text-slate-400">LLM 三槽（OpenAI 兼容）</h2>
+        <p className="mb-4 text-xs text-slate-500">
+          每槽可单独配置厂商、Base URL 与 API Key；未填 Key 时回退环境变量 OPENAI_API_KEY。厂商列表来自{" "}
+          <code className="text-slate-400">GET /api/v1/llm/vendors</code>。
+        </p>
         <div className="grid gap-6 md:grid-cols-3">
-          {(["llm_parser", "llm_outline", "llm_render"] as const).map((slot) => {
+          {LLM_SLOTS.map((slot) => {
             const cur = (data[slot] as Record<string, unknown>) || {};
+            const masked = (cur.api_key_masked as string) || "";
+            const vendorId = String(cur.vendor_id ?? "openai");
+            const known = new Set(vendors.map((x) => x.vendor_id));
+            const vendorList =
+              known.has(vendorId) || !vendorId
+                ? vendors
+                : [
+                    { vendor_id: vendorId, label: `${vendorId}（当前值）`, default_base_url: "", doc_hint: "" },
+                    ...vendors,
+                  ];
+            const vendorMeta = vendorList.find((x) => x.vendor_id === vendorId);
             return (
               <div key={slot} className="space-y-2 rounded-lg border border-slate-800 p-3">
                 <p className="text-xs font-mono text-slate-500">{slot}</p>
                 <label className="block text-xs">
-                  vendor_id
+                  厂商
+                  <select
+                    className="mt-1 w-full rounded border border-slate-700 bg-slate-950 px-2 py-1.5"
+                    value={vendorId}
+                    onChange={(e) => {
+                      const vid = e.target.value;
+                      const v = vendorList.find((x) => x.vendor_id === vid);
+                      const next: Record<string, unknown> = { ...cur, vendor_id: vid };
+                      const bu = String(cur.base_url ?? "").trim();
+                      if (v?.default_base_url && !bu) {
+                        next.base_url = v.default_base_url;
+                      }
+                      setData({ ...data, [slot]: next });
+                    }}
+                  >
+                    {vendorList.map((v) => (
+                      <option key={v.vendor_id} value={v.vendor_id}>
+                        {v.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                {vendorMeta?.doc_hint ? (
+                  <p className="text-[10px] leading-snug text-slate-500">{vendorMeta.doc_hint}</p>
+                ) : null}
+                <label className="block text-xs">
+                  Base URL
                   <input
-                    className="mt-1 w-full rounded border border-slate-700 bg-slate-950 px-2 py-1"
-                    value={String(cur.vendor_id ?? "")}
-                    onChange={(e) =>
-                      setData({ ...data, [slot]: { ...cur, vendor_id: e.target.value } })
-                    }
+                    className="mt-1 w-full rounded border border-slate-700 bg-slate-950 px-2 py-1 font-mono text-[11px]"
+                    placeholder="https://…/v1"
+                    value={String(cur.base_url ?? "")}
+                    onChange={(e) => setData({ ...data, [slot]: { ...cur, base_url: e.target.value } })}
+                  />
+                </label>
+                <label className="block text-xs">
+                  API Key（保存时写入服务端）
+                  <input
+                    type="password"
+                    autoComplete="off"
+                    className="mt-1 w-full rounded border border-slate-700 bg-slate-950 px-2 py-1 font-mono text-[11px]"
+                    placeholder={masked || "未配置"}
+                    value={llmKeyDraft[slot]}
+                    onChange={(e) => setLlmKeyDraft((d) => ({ ...d, [slot]: e.target.value }))}
                   />
                 </label>
                 <label className="block text-xs">
@@ -130,6 +198,23 @@ export default function Settings() {
                     className="mt-1 w-full rounded border border-slate-700 bg-slate-950 px-2 py-1"
                     value={String(cur.model ?? "")}
                     onChange={(e) => setData({ ...data, [slot]: { ...cur, model: e.target.value } })}
+                  />
+                </label>
+                <label className="block text-xs">
+                  temperature
+                  <input
+                    type="number"
+                    step={0.1}
+                    min={0}
+                    max={2}
+                    className="mt-1 w-full rounded border border-slate-700 bg-slate-950 px-2 py-1"
+                    value={Number(cur.temperature ?? 0.3)}
+                    onChange={(e) =>
+                      setData({
+                        ...data,
+                        [slot]: { ...cur, temperature: Number.parseFloat(e.target.value) || 0 },
+                      })
+                    }
                   />
                 </label>
                 <label className="flex items-center gap-2 text-xs">
@@ -201,11 +286,18 @@ export default function Settings() {
         onClick={async () => {
           setMsg("");
           try {
+            const buildLlm = (key: LlmSlotKey) => {
+              const raw = (data[key] as Record<string, unknown>) || {};
+              const cur = stripLlmResponseFields(raw);
+              const draft = llmKeyDraft[key].trim();
+              if (draft) cur.api_key = draft;
+              return cur;
+            };
             const payload: Record<string, unknown> = {
               defaults: data.defaults,
-              llm_parser: data.llm_parser,
-              llm_outline: data.llm_outline,
-              llm_render: data.llm_render,
+              llm_parser: buildLlm("llm_parser"),
+              llm_outline: buildLlm("llm_outline"),
+              llm_render: buildLlm("llm_render"),
               bullets: data.bullets,
               use_same_llm_for_all: data.use_same_llm_for_all,
             };
@@ -218,6 +310,7 @@ export default function Settings() {
             await apiPut("/settings", payload);
             setPexelsKey("");
             setPixabayKey("");
+            setLlmKeyDraft({ llm_parser: "", llm_outline: "", llm_render: "" });
             setMsg("已保存");
             setData(await apiGet("/settings"));
           } catch (e) {

@@ -15,6 +15,27 @@ def test_settings_put_partial(client: TestClient) -> None:
     assert r2.json()["defaults"]["content_type"] == "market_research"
 
 
+def test_llm_vendors(client: TestClient) -> None:
+    r = client.get("/api/v1/llm/vendors")
+    assert r.status_code == 200
+    ids = {x["vendor_id"] for x in r.json()}
+    assert "openai" in ids and "mock" in ids
+
+
+def test_get_settings_masks_llm_api_key(client: TestClient) -> None:
+    put = client.put(
+        "/api/v1/settings",
+        json={"llm_outline": {"api_key": "sk-test-secret-key-abcdef", "vendor_id": "openai"}},
+    )
+    assert put.status_code == 200
+    r = client.get("/api/v1/settings")
+    assert r.status_code == 200
+    body = r.json()["llm_outline"]
+    assert "api_key" not in body
+    assert body.get("api_key_configured") is True
+    assert isinstance(body.get("api_key_masked"), str)
+
+
 def test_templates_lists_builtin(client: TestClient) -> None:
     r = client.get("/api/v1/templates")
     assert r.status_code == 200

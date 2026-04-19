@@ -16,6 +16,7 @@ from instadeck import __version__, templates_service
 from instadeck.bootstrap import ensure_builtin_default
 from instadeck.config import get_settings
 from instadeck.lint_presentation import lint_presentation
+from instadeck.llm_vendors import VENDORS
 from instadeck.outline_llm import generate_outline, revise_outline
 from instadeck.parser_service import parse_uploaded_file
 from instadeck.render_gate import maybe_render_llm_patch
@@ -99,6 +100,10 @@ def create_app() -> FastAPI:
     @app.get(f"{API}/settings")
     def get_settings_api() -> dict[str, Any]:
         return settings_for_response(load_app_settings())
+
+    @app.get(f"{API}/llm/vendors")
+    def list_llm_vendors() -> list[dict[str, Any]]:
+        return list(VENDORS)
 
     @app.put(f"{API}/settings")
     def put_settings_api(payload: dict[str, Any]) -> dict[str, Any]:

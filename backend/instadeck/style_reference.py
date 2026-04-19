@@ -5,16 +5,21 @@ from __future__ import annotations
 import base64
 
 from instadeck.config import get_settings
+from instadeck.llm_vendors import resolve_openai_compatible_config
 from instadeck.schemas import StyleFromReferenceResponse
+from instadeck.settings_store import load_app_settings
 
 
 async def style_from_image(image_bytes: bytes, mime: str = "image/png") -> StyleFromReferenceResponse:
     settings = get_settings()
-    if not settings.openai_api_key:
+    app = load_app_settings()
+    slot = app.llm_outline
+    api_key, base_url = resolve_openai_compatible_config(slot, settings)
+    if not api_key or slot.vendor_id == "mock":
         return StyleFromReferenceResponse(
             theme_override={"primary": "#00529B", "accent": "#6DB948"},
             suggested_visual_style="business_formal",
-            notes="Mock palette (no OPENAI_API_KEY).",
+            notes="Mock palette (no API key for outline slot / env).",
         )
     try:
         from openai import AsyncOpenAI
@@ -25,9 +30,10 @@ async def style_from_image(image_bytes: bytes, mime: str = "image/png") -> Style
             notes="openai package missing.",
         )
     b64 = base64.standard_b64encode(image_bytes).decode("ascii")
-    client = AsyncOpenAI(api_key=settings.openai_api_key, base_url=settings.openai_base_url)
+    client = AsyncOpenAI(api_key=api_key, base_url=base_url)
+    vision_model = slot.model or settings.style_vision_model
     resp = await client.chat.completions.create(
-        model=settings.style_vision_model,
+        model=vision_model,
         temperature=0.2,
         response_format={"type": "json_object"},
         messages=[

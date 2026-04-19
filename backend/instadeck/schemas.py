@@ -70,6 +70,8 @@ class LLMSlotConfig(BaseModel):
     model: str = "gpt-4o-mini"
     temperature: float = 0.3
     enabled: bool = True
+    base_url: str = ""
+    api_key: str = ""
 
 
 class ImageProviderConfig(BaseModel):

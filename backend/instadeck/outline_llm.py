@@ -8,6 +8,7 @@ from datetime import datetime
 from pathlib import Path
 
 from instadeck.config import get_settings
+from instadeck.llm_vendors import resolve_openai_compatible_config
 from instadeck.schemas import (
     AppSettingsModel,
     BulletPoint,
@@ -92,7 +93,8 @@ async def generate_outline(
     slot = app.llm_outline
     settings = get_settings()
     hints = hints or StructuredHints()
-    if not settings.openai_api_key or slot.vendor_id == "mock":
+    api_key, base_url = resolve_openai_compatible_config(slot, settings)
+    if not api_key or slot.vendor_id == "mock":
         return mock_presentation(user_text, profile)
 
     try:
@@ -100,10 +102,7 @@ async def generate_outline(
     except ImportError:
         return mock_presentation(user_text, profile)
 
-    client = AsyncOpenAI(
-        api_key=settings.openai_api_key,
-        base_url=settings.openai_base_url,
-    )
+    client = AsyncOpenAI(api_key=api_key, base_url=base_url)
     tmpl = _load_prompt_template()
     prompt = tmpl.format(
         content_type=profile.content_type,
@@ -135,6 +134,7 @@ async def revise_outline(
 ) -> Presentation:
     slot = app.llm_outline
     settings = get_settings()
+    api_key, base_url = resolve_openai_compatible_config(slot, settings)
     payload = (
         "Revise the following presentation JSON according to the instruction. "
         "Output ONLY valid JSON same schema, no markdown fences.\n\nINSTRUCTION:\n"
@@ -142,7 +142,7 @@ async def revise_outline(
         + "\n\nCURRENT:\n"
         + presentation.model_dump_json()
     )
-    if not settings.openai_api_key or slot.vendor_id == "mock":
+    if not api_key or slot.vendor_id == "mock":
         # minimal local merge: append a text slide note
         slides = list(presentation.slides)
         slides.append(
@@ -158,7 +158,7 @@ async def revise_outline(
 
     from openai import AsyncOpenAI
 
-    client = AsyncOpenAI(api_key=settings.openai_api_key, base_url=settings.openai_base_url)
+    client = AsyncOpenAI(api_key=api_key, base_url=base_url)
     resp = await client.chat.completions.create(
         model=slot.model,
         temperature=slot.temperature,
