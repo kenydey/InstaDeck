@@ -31,6 +31,13 @@ type DeckProfile = {
 
 type TemplateRow = { id: string; display_name: string; builtin: boolean };
 
+/** Cached result of parse-document; generate-outline runs on explicit button click. */
+type ParsedDocCache = {
+  text: string;
+  structured_hints: unknown;
+  frontmatter_suggested_profile?: unknown;
+};
+
 export default function Home() {
   const [templates, setTemplates] = useState<TemplateRow[]>([]);
   const [defaults, setDefaults] = useState<DeckProfile | null>(null);
@@ -48,6 +55,9 @@ export default function Home() {
   const [imageQuery, setImageQuery] = useState("office workspace");
   const [imageHits, setImageHits] = useState<unknown[]>([]);
   const [renderBusy, setRenderBusy] = useState(false);
+  const [parsedDoc, setParsedDoc] = useState<ParsedDocCache | null>(null);
+  const [parsedFileLabel, setParsedFileLabel] = useState("");
+  const [outlineBusy, setOutlineBusy] = useState(false);
 
   useEffect(() => {
     void (async () => {
@@ -242,34 +252,90 @@ export default function Home() {
 
       <section className="rounded-xl border border-slate-800 bg-slate-900/50 p-5">
         <h2 className="mb-3 text-sm font-medium uppercase tracking-wide text-slate-400">模式 B：上传文档</h2>
+        <p className="mb-2 text-xs text-slate-500">
+          选择文件后先解析；确认无误后点击「生成大纲」（使用当前上方 Deck profile）。
+        </p>
         <input
           type="file"
           className="text-sm"
           onChange={async (e) => {
-            const f = e.target.files?.[0];
+            const input = e.target;
+            const f = input.files?.[0];
             if (!f) return;
             setMsg("");
+            setParsedDoc(null);
+            setParsedFileLabel("");
             try {
               const r = await apiPostFile("/parse-document", f);
               if (!r.ok) throw new Error(await r.text());
-              const parsed = await r.json();
-              const hints = parsed.structured_hints;
+              const parsed = (await r.json()) as {
+                text: string;
+                structured_hints: unknown;
+                frontmatter_suggested_profile?: unknown;
+              };
               const fm = parsed.frontmatter_suggested_profile;
               if (fm && window.confirm("检测到 Markdown frontmatter 建议的 deck_profile，是否应用到当前 Profile？")) {
-                setProfile((p) => ({ ...p, ...fm }));
+                setProfile((p) => ({ ...p, ...(fm as DeckProfile) }));
               }
-              const pres = await apiPost<unknown>("/generate-outline", {
-                source_type: "raw_text",
+              setParsedDoc({
                 text: parsed.text,
-                structured_hints: hints,
-                deck_profile: profile,
+                structured_hints: parsed.structured_hints,
+                frontmatter_suggested_profile: parsed.frontmatter_suggested_profile,
               });
-              setOutlineJson(JSON.stringify(pres, null, 2));
+              setParsedFileLabel(f.name);
             } catch (err) {
               setMsg(String(err));
+              setParsedDoc(null);
+            } finally {
+              input.value = "";
             }
           }}
         />
+        {parsedDoc ? (
+          <div className="mt-4 space-y-3 rounded-lg border border-slate-800 bg-slate-950/50 p-4">
+            <p className="text-sm text-slate-300">
+              已解析 <span className="font-mono text-sky-300">{parsedFileLabel || "文件"}</span>
+              ，正文约 <span className="font-mono">{parsedDoc.text.length}</span> 字符。
+            </p>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                disabled={outlineBusy}
+                className="rounded-lg bg-sky-600 px-4 py-2 text-sm font-medium text-white hover:bg-sky-500 disabled:opacity-50"
+                onClick={async () => {
+                  if (!parsedDoc) return;
+                  setOutlineBusy(true);
+                  setMsg("");
+                  try {
+                    const pres = await apiPost<unknown>("/generate-outline", {
+                      source_type: "raw_text",
+                      text: parsedDoc.text,
+                      structured_hints: parsedDoc.structured_hints,
+                      deck_profile: profile,
+                    });
+                    setOutlineJson(JSON.stringify(pres, null, 2));
+                  } catch (err) {
+                    setMsg(String(err));
+                  } finally {
+                    setOutlineBusy(false);
+                  }
+                }}
+              >
+                {outlineBusy ? "正在生成大纲…" : "生成大纲"}
+              </button>
+              <button
+                type="button"
+                className="rounded-lg border border-slate-600 px-3 py-2 text-xs text-slate-400 hover:bg-slate-800"
+                onClick={() => {
+                  setParsedDoc(null);
+                  setParsedFileLabel("");
+                }}
+              >
+                清除解析结果
+              </button>
+            </div>
+          </div>
+        ) : null}
       </section>
 
       <section className="rounded-xl border border-slate-800 bg-slate-900/50 p-5">

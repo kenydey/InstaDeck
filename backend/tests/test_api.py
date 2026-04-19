@@ -43,6 +43,23 @@ def test_templates_lists_builtin(client: TestClient) -> None:
     assert "builtin:default" in ids
 
 
+def test_generate_outline_raw_text(client: TestClient) -> None:
+    r = client.post(
+        "/api/v1/generate-outline",
+        json={
+            "source_type": "raw_text",
+            "text": "This is a long enough line for the mock outline generator to use as context.",
+            "structured_hints": {
+                "tables_markdown": [],
+                "numeric_blocks": [],
+                "chart_cues": [],
+            },
+        },
+    )
+    assert r.status_code == 200
+    assert "slides" in r.json()
+
+
 def test_generate_outline_mock(client: TestClient) -> None:
     r = client.post(
         "/api/v1/generate-outline",
