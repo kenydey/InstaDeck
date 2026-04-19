@@ -37,6 +37,7 @@ const VISUAL_STYLES = [
 export default function Settings() {
   const [data, setData] = useState<SettingsDto | null>(null);
   const [templates, setTemplates] = useState<TemplateRow[]>([]);
+  const [health, setHealth] = useState<string>("");
   const [pexelsKey, setPexelsKey] = useState("");
   const [pixabayKey, setPixabayKey] = useState("");
   const [vendors, setVendors] = useState<VendorRow[]>([]);
@@ -74,6 +75,26 @@ export default function Settings() {
     <div className="space-y-8">
       <h1 className="text-2xl font-semibold text-white">设置</h1>
       {msg && <p className="text-rose-400">{msg}</p>}
+      {health && <p className="text-xs text-slate-400">{health}</p>}
+
+      <div className="flex flex-wrap gap-2">
+        <button
+          type="button"
+          className="rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-200 hover:bg-slate-800"
+          onClick={async () => {
+            setMsg("");
+            setHealth("");
+            try {
+              const h = await apiGet<{ status: string; version: string }>("/health");
+              setHealth(`后端状态：${h.status}（${h.version}）`);
+            } catch (e) {
+              setHealth(`后端状态：不可用（${String(e)}）`);
+            }
+          }}
+        >
+          检查连接
+        </button>
+      </div>
 
       <section className="rounded-xl border border-slate-800 bg-slate-900/50 p-5">
         <h2 className="mb-3 text-sm font-medium uppercase tracking-wide text-slate-400">默认 deck_profile</h2>
@@ -129,6 +150,14 @@ export default function Settings() {
           每槽可单独配置厂商、Base URL 与 API Key；未填 Key 时回退环境变量 OPENAI_API_KEY。厂商列表来自{" "}
           <code className="text-slate-400">GET /api/v1/llm/vendors</code>。
         </p>
+        <label className="mb-4 flex items-center gap-2 text-sm text-slate-300">
+          <input
+            type="checkbox"
+            checked={Boolean(data.use_same_llm_for_all)}
+            onChange={(e) => setData({ ...data, use_same_llm_for_all: e.target.checked })}
+          />
+          所有槽位使用相同 LLM（当前仅作为配置项保存）
+        </label>
         <div className="grid gap-6 md:grid-cols-3">
           {LLM_SLOTS.map((slot) => {
             const cur = (data[slot] as Record<string, unknown>) || {};
@@ -256,12 +285,49 @@ export default function Settings() {
       </section>
 
       <section className="rounded-xl border border-slate-800 bg-slate-900/50 p-5">
+        <h2 className="mb-3 text-sm font-medium uppercase tracking-wide text-slate-400">要点（bullets）</h2>
+        <div className="grid gap-4 md:grid-cols-2">
+          <label className="flex items-center gap-2 text-sm text-slate-300">
+            <input
+              type="checkbox"
+              checked={Boolean((data.bullets as { auto_icon_enabled?: boolean } | undefined)?.auto_icon_enabled)}
+              onChange={(e) =>
+                setData({
+                  ...data,
+                  bullets: { ...(data.bullets as object), auto_icon_enabled: e.target.checked },
+                })
+              }
+            />
+            自动 icon（启用/禁用）
+          </label>
+          <label className="block text-sm">
+            <span className="text-slate-400">装饰模式</span>
+            <select
+              className="mt-1 w-full rounded border border-slate-700 bg-slate-950 px-2 py-2"
+              value={String((data.bullets as { decoration_mode?: string } | undefined)?.decoration_mode || "emoji")}
+              onChange={(e) =>
+                setData({
+                  ...data,
+                  bullets: { ...(data.bullets as object), decoration_mode: e.target.value },
+                })
+              }
+            >
+              <option value="emoji">emoji</option>
+              <option value="small_image">small_image</option>
+              <option value="native_shape">native_shape</option>
+            </select>
+          </label>
+        </div>
+      </section>
+
+      <section className="rounded-xl border border-slate-800 bg-slate-900/50 p-5">
         <h2 className="mb-3 text-sm font-medium uppercase tracking-wide text-slate-400">自定义模板</h2>
         <p className="mb-3 text-sm text-slate-400">上传 .pptx（ZIP 魔数校验）。内置模板不可删除。</p>
         <input
           type="file"
           accept=".pptx"
           className="text-sm"
+          aria-label="上传自定义 PPTX 模板"
           onChange={async (e) => {
             const f = e.target.files?.[0];
             if (!f) return;
@@ -278,6 +344,43 @@ export default function Settings() {
             setTemplates(await apiGet<TemplateRow[]>("/templates"));
           }}
         />
+        <div className="mt-4 space-y-2">
+          {templates
+            .filter((t) => !t.builtin)
+            .map((t) => (
+              <div
+                key={t.id}
+                className="flex items-center justify-between rounded border border-slate-800 bg-slate-950/40 px-3 py-2"
+              >
+                <div className="min-w-0">
+                  <p className="truncate text-sm text-slate-200">{t.display_name}</p>
+                  <p className="truncate text-[11px] text-slate-500">{t.id}</p>
+                </div>
+                <button
+                  type="button"
+                  className="rounded border border-rose-700/60 bg-rose-950/40 px-3 py-1.5 text-xs text-rose-200 hover:bg-rose-950"
+                  onClick={async () => {
+                    if (!window.confirm(`确定删除模板「${t.display_name}」？`)) return;
+                    setMsg("");
+                    try {
+                      const r = await fetch(`/api/v1/templates/${encodeURIComponent(t.id)}`, {
+                        method: "DELETE",
+                      });
+                      if (!r.ok) throw new Error(await r.text());
+                      setTemplates(await apiGet<TemplateRow[]>("/templates"));
+                    } catch (e) {
+                      setMsg(String(e));
+                    }
+                  }}
+                >
+                  删除
+                </button>
+              </div>
+            ))}
+          {templates.filter((t) => !t.builtin).length === 0 ? (
+            <p className="text-xs text-slate-500">暂无用户自定义模板。</p>
+          ) : null}
+        </div>
       </section>
 
       <button

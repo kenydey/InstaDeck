@@ -55,6 +55,9 @@ export default function Home() {
   const [imageQuery, setImageQuery] = useState("office workspace");
   const [imageHits, setImageHits] = useState<unknown[]>([]);
   const [renderBusy, setRenderBusy] = useState(false);
+  const [renderInstruction, setRenderInstruction] = useState("");
+  const [pptxPreviewBusy, setPptxPreviewBusy] = useState(false);
+  const [pptxPreviewJson, setPptxPreviewJson] = useState("");
   const [parsedDoc, setParsedDoc] = useState<ParsedDocCache | null>(null);
   const [parsedFileLabel, setParsedFileLabel] = useState("");
   const [outlineBusy, setOutlineBusy] = useState(false);
@@ -91,10 +94,15 @@ export default function Home() {
     setRenderBusy(true);
     setMsg("");
     try {
+      const ri = renderInstruction.trim();
       const r = await fetch("/api/v1/render-pptx", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ presentation: parsedOutline, deck_profile: profile }),
+        body: JSON.stringify({
+          presentation: parsedOutline,
+          deck_profile: profile,
+          ...(ri ? { render_instruction: ri } : {}),
+        }),
       });
       if (!r.ok) throw new Error(await r.text());
       const blob = await r.blob();
@@ -109,7 +117,7 @@ export default function Home() {
     } finally {
       setRenderBusy(false);
     }
-  }, [parsedOutline, profile]);
+  }, [parsedOutline, profile, renderInstruction]);
 
   return (
     <div className="space-y-8">
@@ -199,6 +207,7 @@ export default function Home() {
           className="h-28 w-full rounded border border-slate-700 bg-slate-950 px-3 py-2 text-sm"
           value={brief}
           onChange={(e) => setBrief(e.target.value)}
+          aria-label="模式 A：brief 描述"
         />
         <div className="mt-3 flex flex-wrap gap-2">
           <button
@@ -258,6 +267,7 @@ export default function Home() {
         <input
           type="file"
           className="text-sm"
+          aria-label="上传文档并解析（模式 B）"
           onChange={async (e) => {
             const input = e.target;
             const f = input.files?.[0];
@@ -344,7 +354,17 @@ export default function Home() {
           className="h-72 w-full rounded border border-slate-700 bg-slate-950 px-3 py-2 font-mono text-xs leading-relaxed"
           value={outlineJson}
           onChange={(e) => setOutlineJson(e.target.value)}
+          aria-label="大纲 JSON 编辑器"
         />
+        <label className="mt-3 block text-sm">
+          <span className="text-slate-400">可选渲染指令（render_instruction）</span>
+          <textarea
+            className="mt-1 h-20 w-full rounded border border-slate-700 bg-slate-950 px-3 py-2 text-sm"
+            value={renderInstruction}
+            onChange={(e) => setRenderInstruction(e.target.value)}
+            placeholder="例如：每页最多 5 行；尽量使用图表；结论页加醒目总结。"
+          />
+        </label>
         <div className="mt-3 flex flex-wrap gap-2">
           <button
             type="button"
@@ -364,6 +384,7 @@ export default function Home() {
             className="flex-1 min-w-[12rem] rounded border border-slate-700 bg-slate-950 px-2 py-2 text-sm"
             placeholder="自然语言修订指令，例如：把第二张改成两个要点"
             id="revise-input"
+            aria-label="修订大纲指令输入"
           />
           <button
             type="button"
@@ -415,7 +436,44 @@ export default function Home() {
             {renderBusy ? "生成中…" : "下载 PPTX（同生成）"}
           </button>
         </div>
-        <p className="mt-2 text-xs text-slate-500">预览：v1 后端返回 stub；可在本地用 PowerPoint 打开下载文件。</p>
+        <div className="mt-4 rounded-lg border border-slate-800 bg-slate-950/50 p-4">
+          <p className="mb-2 text-sm text-slate-300">PPTX 预览（v1 stub）</p>
+          <div className="flex flex-wrap items-center gap-2">
+            <input
+              type="file"
+              accept=".pptx"
+              className="text-sm"
+              aria-label="上传 PPTX 进行预览解析"
+              onChange={async (e) => {
+                const input = e.target;
+                const f = input.files?.[0];
+                if (!f) return;
+                setPptxPreviewBusy(true);
+                setMsg("");
+                setPptxPreviewJson("");
+                try {
+                  const r = await apiPostFile("/pptx-preview", f);
+                  if (!r.ok) throw new Error(await r.text());
+                  const j = (await r.json()) as unknown;
+                  setPptxPreviewJson(JSON.stringify(j, null, 2));
+                } catch (err) {
+                  setMsg(String(err));
+                } finally {
+                  setPptxPreviewBusy(false);
+                  input.value = "";
+                }
+              }}
+            />
+            {pptxPreviewBusy ? <span className="text-xs text-slate-500">解析中…</span> : null}
+          </div>
+          {pptxPreviewJson ? (
+            <pre className="mt-3 max-h-64 overflow-auto rounded bg-slate-950 p-3 text-xs text-slate-400">
+              {pptxPreviewJson}
+            </pre>
+          ) : (
+            <p className="mt-2 text-xs text-slate-500">用于联调接口：当前后端返回 stub JSON。</p>
+          )}
+        </div>
       </section>
 
       <section className="rounded-xl border border-slate-800 bg-slate-900/50 p-5">
@@ -425,6 +483,7 @@ export default function Home() {
             className="flex-1 min-w-[12rem] rounded border border-slate-700 bg-slate-950 px-2 py-2 text-sm"
             value={imageQuery}
             onChange={(e) => setImageQuery(e.target.value)}
+            aria-label="图库检索关键词"
           />
           <button
             type="button"
@@ -478,6 +537,7 @@ export default function Home() {
           type="file"
           accept="image/*"
           className="text-sm"
+          aria-label="上传参考图片抽取风格"
           onChange={async (e) => {
             const f = e.target.files?.[0];
             if (!f) return;
