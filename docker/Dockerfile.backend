@@ -1,0 +1,17 @@
+FROM python:3.12-slim-bookworm
+RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+WORKDIR /app
+COPY backend/pyproject.toml backend/uv.lock* ./
+COPY backend/instadeck ./instadeck
+COPY backend/assets ./assets
+COPY DocumentParser.py /app/DocumentParser.py
+RUN uv sync --frozen --no-dev 2>/dev/null || uv sync --no-dev
+ENV PATH="/app/.venv/bin:$PATH" \
+    INSTADECK_DATA_DIR=/data \
+    PYTHONUNBUFFERED=1
+RUN mkdir -p /data/templates/user /data/settings
+EXPOSE 8000
+HEALTHCHECK --interval=30s --timeout=5s CMD curl -f http://127.0.0.1:8000/api/v1/health || exit 1
+CMD ["uvicorn", "instadeck.main:app", "--host", "0.0.0.0", "--port", "8000"]
