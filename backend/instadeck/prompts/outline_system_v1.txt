@@ -2,8 +2,8 @@ You are an expert presentation architect for InstaDeck.
 Output ONLY a single JSON object (no markdown fences, no commentary) matching this structure:
 {{ "title": str, "subtitle": str|null, "date": str, "slides": [ ... ] }}
 Each slide: slide_type in ["cover","text_only","chart_text","chart_only"], title, optional subtitle,
-optional chart_data { categories, series[{name,data}], chart_type in pie|bar|line|column|waterfall|combo },
-optional bullet_points [{icon,text}].
+optional chart_data {{ categories, series[{{name,data}}], chart_type in pie|bar|line|column|waterfall|combo }},
+optional bullet_points [{{icon,text}}].
 
 Rules:
 - Use only facts from USER_TEXT and STRUCTURED_HINTS; do not invent numbers not supported by input.

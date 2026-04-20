@@ -104,13 +104,16 @@ async def generate_outline(
 
     client = AsyncOpenAI(api_key=api_key, base_url=base_url)
     tmpl = _load_prompt_template()
-    prompt = tmpl.format(
-        content_type=profile.content_type,
-        visual_style=profile.visual_style,
-        persona=profile.persona or "professional",
-        user_text=user_text[:120_000],
-        structured_hints_json=hints.model_dump_json(),
-    )
+    try:
+        prompt = tmpl.format(
+            content_type=profile.content_type,
+            visual_style=profile.visual_style,
+            persona=profile.persona or "professional",
+            user_text=user_text[:120_000],
+            structured_hints_json=hints.model_dump_json(),
+        )
+    except (KeyError, ValueError) as e:
+        raise ValueError(f"outline_prompt_format_error: {e}") from e
     resp = await client.chat.completions.create(
         model=slot.model,
         temperature=slot.temperature,
